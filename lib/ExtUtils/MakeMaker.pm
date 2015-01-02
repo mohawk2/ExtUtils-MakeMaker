@@ -790,25 +790,29 @@ END
         $self->eval_in_subdirs if @{$self->{DIR}};
     }
 
+    my %section2text;
     foreach my $section ( @MM_Sections ){
         # Support for new foo_target() methods.
         my $method = $section;
         $method .= '_target' unless $self->can($method);
-
         print "Processing Makefile '$section' section\n" if ($Verbose >= 2);
         my($skipit) = $self->skipcheck($section);
+        my @text = "\n";
         if ($skipit){
-            push @{$self->{RESULT}}, "\n# --- MakeMaker $section section $skipit.";
+            push @text, "# --- MakeMaker $section section $skipit.";
         } else {
-            my(%a) = %{$self->{$section} || {}};
-            push @{$self->{RESULT}}, "\n# --- MakeMaker $section section:";
-            push @{$self->{RESULT}}, "# " . join ", ", %a if $Verbose && %a;
-            push @{$self->{RESULT}}, $self->maketext_filter(
-                $self->$method( %a )
-            );
+            push @text, "# --- MakeMaker $section section:";
+            my %a = %{$self->{$section} || {}};
+            push @text, '# ' . join ", ", %a if $Verbose && %a;
+            push @text, $self->maketext_filter($self->$method(%a));
         }
+        push @text, "\n";
+        $section2text{$section} = \@text;
     }
-
+    # notional plugins work here
+    foreach my $section ( @MM_Sections ){
+        push @{$self->{RESULT}}, @{ $section2text{$section} };
+    }
     push @{$self->{RESULT}}, "\n# End.";
 
     $self;
