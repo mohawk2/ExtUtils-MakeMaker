@@ -106,6 +106,7 @@ my %Special_Sigs = (
  META_MERGE         => 'HASH',
  OBJECT             => ['ARRAY', ''],
  PL_FILES           => 'HASH',
+ PLUGINS            => 'ARRAY',
  PM                 => 'HASH',
  PMLIBDIRS          => 'ARRAY',
  PMLIBPARENTDIRS    => 'ARRAY',
@@ -309,7 +310,7 @@ sub full_setup {
     MYEXTLIB NAME NEEDS_LINKING NOECHO NO_META NO_MYMETA NO_PACKLIST NO_PERLLOCAL
     NORECURS NO_VC OBJECT OPTIMIZE PERL_MALLOC_OK PERL PERLMAINCC PERLRUN
     PERLRUNINST PERL_CORE
-    PERM_DIR PERM_RW PERM_RWX MAGICXS
+    PERM_DIR PERM_RW PERM_RWX MAGICXS PLUGINS
     PL_FILES PM PM_FILTER PMLIBDIRS PMLIBPARENTDIRS POLLUTE
     PREREQ_FATAL PREREQ_PM PREREQ_PRINT PRINT_PREREQ
     SIGN SKIP TEST_REQUIRES TYPEMAPS UNINST VERSION VERSION_FROM XS
@@ -809,9 +810,24 @@ END
         push @text, "\n";
         $section2text{$section} = \@text;
     }
-    # notional plugins work here
-    foreach my $section ( @MM_Sections ){
-        push @{$self->{RESULT}}, @{ $section2text{$section} };
+    foreach my $section ( @MM_Sections ) {
+        # enters as listref, leaves as text
+        $section2text{$section} = join '',
+            map "$_\n", @{ $section2text{$section} };
+    }
+    foreach my $plugin (@{$self->{PLUGINS}} ) {
+        # plugins work here: each is $pluginsuffix, \%givenargs
+        my ($suffix, @args) = @$plugin;
+        my $pluginclass = "ExtUtils::MakeMaker::Plugin::$suffix";
+        my $pmfile = $pluginclass; $pmfile =~ s#::#/#g; $pmfile .= '.pm';
+        eval {
+            require $pmfile;
+            $pluginclass->filter(\%section2text, @args);
+        };
+        warn "Plugin error for '$suffix': $@\n" if $@;
+    }
+    foreach my $section ( @MM_Sections ) {
+        push @{$self->{RESULT}}, $section2text{$section};
     }
     push @{$self->{RESULT}}, "\n# End.";
 
