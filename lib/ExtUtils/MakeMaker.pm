@@ -8,6 +8,7 @@ BEGIN {require 5.006;}
 
 require Exporter;
 use ExtUtils::MakeMaker::Config;
+use ExtUtils::MakeMaker::VRR qw(vrr2text text2vrrs);
 use ExtUtils::MakeMaker::version; # ensure we always have our fake version.pm
 use Carp;
 use File::Path;
@@ -430,6 +431,8 @@ sub _has_cpan_meta_requirements {
     };
 }
 
+sub _chomped { my $t = $_[0]; chomp $t; $t; }
+
 sub new {
     my($class,$self) = @_;
     my($key);
@@ -828,24 +831,25 @@ END
     my %section2info;
     foreach my $section ( @MM_Sections ){
         # Support for new foo_target() methods.
-        my $method = $section;
-        $method .= '_target' unless $self->can($method);
+        my ($method) = grep $self->can($_), map $section.$_, 'X', '', '_targetX', '_target';
         print "Processing Makefile '$section' section\n" if ($Verbose >= 2);
         my($skipit) = $self->skipcheck($section);
-        my @text = "\n";
+        my @vrrs = undef;
         if ($skipit){
-            push @text, "# --- MakeMaker $section section $skipit.";
+            push @vrrs, \"--- MakeMaker $section section $skipit.";
         } else {
-            push @text, "# --- MakeMaker $section section:";
+            push @vrrs, \"--- MakeMaker $section section:";
             my %a = %{$self->{$section} || {}};
-            push @text, '# ' . join ", ", %a if $Verbose && %a;
-            push @text, $self->maketext_filter($self->$method(%a));
+            push @vrrs, \join ", ", %a if $Verbose && %a;
+            my @info = $self->$method(%a);
+            @info = text2vrrs @info if $method !~ /X$/;
+            push @vrrs, @info;
         }
-        push @text, "\n";
-        $section2info{$section} = \@text;
+        push @vrrs, undef;
+        $section2info{$section} = \@vrrs;
     }
     # notional plugins work here
-    push @{$self->{RESULT}}, map @{ $section2info{$_} }, @MM_Sections;
+    push @{$self->{RESULT}}, map _chomped($_), vrr2text map @{ $section2info{$_} }, @MM_Sections;
     push @{$self->{RESULT}}, "\n# End.";
 
     $self;
