@@ -38,6 +38,7 @@ lib/ExtUtils/MakeMaker/Tutorial.pod
 lib/ExtUtils/MakeMaker/version.pm
 lib/ExtUtils/MakeMaker/version/regex.pm
 lib/ExtUtils/MakeMaker/version/vpp.pm
+lib/ExtUtils/MakeMaker/VRR.pm
 lib/ExtUtils/Mkbootstrap.pm
 lib/ExtUtils/Mksymlists.pm
 lib/ExtUtils/MM.pm
