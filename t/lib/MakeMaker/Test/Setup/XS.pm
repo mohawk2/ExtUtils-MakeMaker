@@ -179,6 +179,98 @@ $label2files{subdirs} = +{
 };
 virtual_rename('subdirs', 'lib/XS/Test.pm', 'Test.pm');
 
+# to mimic ExtUtils::Depends-facilitated B::Hooks::OP::Check
+$label2files{eud_produce} = +{
+  %{ $label2files{basic} }, # make copy
+  'Makefile.PL' => sprintf(
+    $MAKEFILEPL, 'Other', 'Other.pm', qq{},
+    q{
+      DEFINE => '-DINVAR=input',
+      FUNCLIST => [qw(is_odd)],
+      DL_FUNCS => { 'XS::Other' => [] },
+    },
+  ),
+  'Other.pm' => do {
+    my $t = $PM_OTHER; $t =~ s:bootstrap:sub dl_load_flags { 0x01 }\n$&:g; $t
+  },
+  'Other.xs' => $XS_OTHER,
+  't/is_even.t' => $T_OTHER,
+};
+delete @{ $label2files{eud_produce} }{qw(lib/XS/Test.pm Test.xs)};
+
+# to mimic ExtUtils::Depends-facilitated consuming B::Hooks::OP::Check
+$label2files{eud_consume} = +{
+  %{ $label2files{basic} }, # make copy
+  'Makefile.PL' => <<'EOF' .
+    use File::Spec::Functions;
+    my $root; BEGIN {$root = catdir(updir, qw(XS-Testeud_produce blib));}
+EOF
+    sprintf(
+      $MAKEFILEPL, 'Test', 'Test.pm', qq{'$typemap'},
+      q{
+        DEFINE => '-DINVAR=input',
+        LIBS => join(' ', find_extra_libs({'XS::Other'=>undef}, [
+          map catdir($root, $_), qw(lib arch)
+        ])),
+      },
+  ) . <<'EOF',
+use Config;
+sub _quote_if_space { $_[0] =~ / / ? qq{"$_[0]"} : $_[0] }
+my %mappers; BEGIN { %mappers = (
+  MSWin32 => sub { $_[0] . '\.(?:lib|a)' },
+  cygwin => sub { $_[0] . '\.dll'},
+  android => sub { $_[0] . '\.' . $Config{dlext} },
+); }
+sub find_extra_libs {
+  my ($deps, $search) = @_;
+  return () if !keys %$deps;
+  my $mapper = $mappers{$^O};
+  return () unless defined $mapper;
+  require File::Find;
+  my @found_libs = ();
+  foreach my $name (keys %$deps) {
+    my @parts = split /::/, $name;
+    my ($stem) = defined &DynaLoader::mod2fname
+      ? DynaLoader::mod2fname(\@parts) : $parts[-1];
+    my $lib = $mapper->($stem);
+    my ($pattern, $matching_dir, $matching_file) = qr/$lib$/;
+    File::Find::find(sub {
+      return if !$matching_file or !/$pattern/;
+      ($matching_dir, $matching_file) = ($File::Find::dir, $File::Find::name);
+    }, grep -d, @$search); # only extant dirs
+    if ($matching_file && -f $matching_file) {
+      push @found_libs,
+        '-L' . _quote_if_space($matching_dir),
+        '-l' . $stem;
+      $found_libs[-1] = "-l:$stem.$Config{dlext}" if $^O eq 'android';
+    }
+  }
+  @found_libs;
+}
+EOF
+  'Test.pm' => do {
+    my $t = $PM_TEST; $t =~ s:is_even:is_odd:g;
+    $t =~ s/bootstrap/
+      use File::Spec::Functions;
+      my \$root; BEGIN {\$root = catdir(updir, qw(XS-Testeud_produce blib));}
+      use lib map catdir(\$root, \$_), qw(lib arch);
+      require XS::Other;\n$&
+    /g;
+    $t
+  },
+  'Test.xs' => do {
+    my $t = $XS_OTHER; $t =~ s:Other:Test:g; $t =~ s:\{.*?\}:;:; $t
+  },
+  't/is_even.t' => <<'END',
+use strict;
+use warnings;
+use Test::More tests => 3;
+use_ok "XS::Test";
+ok XS::Test::is_odd(1);
+ok !XS::Test::is_odd(2);
+END
+};
+
 # to mimic behaviour of Unicode-LineBreak version 2015.07.16
 $label2files{subdirscomplex} = +{
   %{ $label2files{'subdirs'} }, # make copy
@@ -412,6 +504,8 @@ sub list_dynamic {
         $^O !~ m!^(VMS|aix)$! ? ([ 'subdirscomplex', '', '' ]) : (),
     ) : (), # DynaLoader different
     [ 'subdirs', '', '' ],
+    [ 'eud_produce', '', '', 1 ],
+    [ 'eud_consume', '', '' ],
     # https://github.com/Perl/perl5/issues/17601
     # https://rt.cpan.org/Ticket/Display.html?id=115321
     $^O ne 'MSWin32' ? (
